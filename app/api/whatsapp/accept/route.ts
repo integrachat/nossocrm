@@ -7,8 +7,10 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { conversationId } = await req.json()
-  if (!conversationId) return NextResponse.json({ error: 'conversationId obrigatório' }, { status: 400 })
+  const { dealId, conversationId } = await req.json()
+  if (!dealId && !conversationId) {
+    return NextResponse.json({ error: 'dealId ou conversationId obrigatório' }, { status: 400 })
+  }
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -18,23 +20,30 @@ export async function POST(req: NextRequest) {
 
   if (!profile) return NextResponse.json({ error: 'Perfil não encontrado' }, { status: 404 })
 
-  const { data: conv } = await supabase
+  // Buscar conversa por dealId ou conversationId
+  let convQuery = supabase
     .from('whatsapp_conversations')
     .select('id, deal_id, status')
-    .eq('id', conversationId)
     .eq('organization_id', profile.organization_id)
-    .maybeSingle()
+
+  convQuery = dealId
+    ? convQuery.eq('deal_id', dealId)
+    : convQuery.eq('id', conversationId)
+
+  const { data: conv } = await convQuery.maybeSingle()
 
   if (!conv) return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
-  if (conv.status === 'active') return NextResponse.json({ error: 'Conversa já em atendimento' }, { status: 409 })
+  if (conv.status === 'active') {
+    return NextResponse.json({ error: 'Conversa já está em atendimento' }, { status: 409 })
+  }
 
   // Atribuir conversa ao vendedor
   await supabase
     .from('whatsapp_conversations')
     .update({ assigned_to: profile.id, assigned_at: new Date().toISOString(), status: 'active' })
-    .eq('id', conversationId)
+    .eq('id', conv.id)
 
-  // Buscar ou criar board do vendedor "Vendas [Nome]"
+  // Buscar ou criar board "Vendas [Nome]"
   const boardName = `Vendas ${profile.name}`
 
   let { data: sellerBoard } = await supabase
@@ -53,7 +62,6 @@ export async function POST(req: NextRequest) {
 
     sellerBoard = newBoard
 
-    // Criar estágios padrão
     await supabase.from('board_stages').insert([
       { board_id: newBoard!.id, organization_id: profile.organization_id, name: 'Em atendimento', order: 1 },
       { board_id: newBoard!.id, organization_id: profile.organization_id, name: 'Proposta enviada', order: 2 },
@@ -63,7 +71,6 @@ export async function POST(req: NextRequest) {
     ])
   }
 
-  // Buscar primeiro estágio do board do vendedor
   const { data: firstStage } = await supabase
     .from('board_stages')
     .select('id')
