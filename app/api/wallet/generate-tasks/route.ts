@@ -1,17 +1,66 @@
 // app/api/wallet/generate-tasks/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { generateText } from 'ai'
-import { google } from '@ai-sdk/google'
-import { openai } from '@ai-sdk/openai'
-import { anthropic } from '@ai-sdk/anthropic'
 
-function getModel(provider: string, apiKey: string, model: string) {
-  if (provider === 'google')    return google(model || 'gemini-1.5-flash', { apiKey })
-  if (provider === 'openai')    return openai(model || 'gpt-4o-mini', { apiKey })
-  if (provider === 'anthropic') return anthropic(model || 'claude-sonnet-4-6', { apiKey })
-  return google('gemini-1.5-flash', { apiKey })
+// ── Chamadas diretas às APIs de IA via fetch (sem pacotes @ai-sdk/*) ──
+
+async function callGoogleGemini(apiKey: string, model: string, prompt: string): Promise<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-1.5-flash'}:generateContent?key=${apiKey}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+    }),
+  })
+  if (!res.ok) throw new Error(`Gemini API error: ${res.status} ${await res.text()}`)
+  const data = await res.json()
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || ''
 }
+
+async function callOpenAI(apiKey: string, model: string, prompt: string): Promise<string> {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model || 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  })
+  if (!res.ok) throw new Error(`OpenAI API error: ${res.status} ${await res.text()}`)
+  const data = await res.json()
+  return data?.choices?.[0]?.message?.content || ''
+}
+
+async function callAnthropic(apiKey: string, model: string, prompt: string): Promise<string> {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: model || 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  })
+  if (!res.ok) throw new Error(`Anthropic API error: ${res.status} ${await res.text()}`)
+  const data = await res.json()
+  return data?.content?.find((c: any) => c.type === 'text')?.text || ''
+}
+
+async function callAI(provider: string, apiKey: string, model: string, prompt: string): Promise<string> {
+  if (provider === 'openai')    return callOpenAI(apiKey, model, prompt)
+  if (provider === 'anthropic') return callAnthropic(apiKey, model, prompt)
+  return callGoogleGemini(apiKey, model, prompt) // default: google
+}
+
+// ── Handler ────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-internal-secret') || req.headers.get('x-cron-secret')
@@ -35,10 +84,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'IA não habilitada para esta organização' }, { status: 422 })
   }
 
-  // Selecionar API key pelo provider
-  const apiKey = aiConfig.ai_provider === 'google'    ? aiConfig.ai_google_key
-               : aiConfig.ai_provider === 'openai'    ? aiConfig.ai_openai_key
-               : aiConfig.ai_provider === 'anthropic' ? aiConfig.ai_anthropic_key
+  const provider = aiConfig.ai_provider || 'google'
+  const apiKey = provider === 'openai'    ? aiConfig.ai_openai_key
+               : provider === 'anthropic' ? aiConfig.ai_anthropic_key
                : aiConfig.ai_google_key
 
   if (!apiKey) return NextResponse.json({ error: 'API key de IA não configurada' }, { status: 422 })
@@ -65,7 +113,7 @@ export async function POST(req: NextRequest) {
       .eq('status', 'pending')
       .eq('ai_generated', true)
 
-    // Buscar carteira do vendedor (usa owner_id e last_purchase_date)
+    // Buscar carteira do vendedor
     const { data: contacts } = await svc
       .from('contacts')
       .select('id, name, phone, last_purchase_date, wallet_stage')
@@ -91,20 +139,14 @@ export async function POST(req: NextRequest) {
       return `- ${c.name} | Status: ${c.wallet_stage} | Última compra: ${daysSince !== null ? `${daysSince} dias atrás` : 'nunca registrada'}`
     }).join('\n')
 
-    const model = getModel(aiConfig.ai_provider, apiKey, aiConfig.ai_model)
-
-    let tasks: any[] = []
-    try {
-      const { text } = await generateText({
-        model,
-        prompt: `Você é um assistente de CRM especialista em retenção de clientes.
+    const prompt = `Você é um assistente de CRM especialista em retenção de clientes.
 Vendedor: ${seller.name}
 Data de hoje: ${today}
 
 Carteira de clientes prioritários para contato:
 ${contactList}
 
-Gere exatamente 5 tarefas de contato para hoje. Responda APENAS com JSON válido, sem texto adicional:
+Gere exatamente 5 tarefas de contato para hoje. Responda APENAS com JSON válido, sem texto adicional, sem markdown:
 [
   {
     "contactName": "nome exato do contato da lista acima",
@@ -115,11 +157,13 @@ Gere exatamente 5 tarefas de contato para hoje. Responda APENAS com JSON válido
 ]
 
 Regras de prioridade:
-- at_risk ou inactive com mais de 45 dias → high
-- active com 20-30 dias → medium  
-- active com menos de 20 dias → low`,
-      })
+- at_risk ou inactive com mais de 45 dias -> high
+- active com 20-30 dias -> medium
+- active com menos de 20 dias -> low`
 
+    let tasks: any[] = []
+    try {
+      const text = await callAI(provider, apiKey, aiConfig.ai_model, prompt)
       const clean = text.replace(/```json|```/g, '').trim()
       tasks = JSON.parse(clean)
     } catch (e) {
@@ -129,7 +173,7 @@ Regras de prioridade:
 
     for (const task of tasks) {
       const contact = contacts.find(c =>
-        c.name?.toLowerCase().includes(task.contactName?.toLowerCase()?.trim())
+        c.name?.toLowerCase().includes((task.contactName || '').toLowerCase().trim())
       )
       if (!contact) continue
 
