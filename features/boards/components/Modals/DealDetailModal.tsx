@@ -59,6 +59,9 @@ import { ActivityRow } from '@/features/activities/components/ActivityRow';
 import { formatPriorityPtBr } from '@/lib/utils/priority';
 import { BriefingDrawer } from '@/features/deals/components/BriefingDrawer';
 import { AIExtractedFields } from '@/features/deals/components/AIExtractedFields';
+import { RevenueModal } from './RevenueModal';
+import { WhatsAppAcceptButton } from '../WhatsAppAcceptButton';
+import { TELEVENDAS_BOARD_ID, AGUARDANDO_STAGE_ID } from '@/lib/config/televendas';
 
 interface DealDetailModalProps {
   dealId: string | null;
@@ -168,6 +171,8 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
   const [pendingLostStageId, setPendingLostStageId] = useState<string | null>(null);
   const [lossReasonOrigin, setLossReasonOrigin] = useState<'button' | 'stage'>('button');
   const [showBriefingDrawer, setShowBriefingDrawer] = useState(false);
+  const [showRevenueModal, setShowRevenueModal] = useState(false);
+  const [revenueInput, setRevenueInput] = useState('');
 
   // Tags suggestions (local for now; Settings UI writes to the same key)
   const [availableTags, setAvailableTags] = usePersistedState<string[]>('crm_tags', []);
@@ -418,6 +423,33 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
     }
   };
 
+  const executeWonAction = () => {
+    // Intelligent "Won" Logic:
+    if (dealBoard?.wonStayInStage) {
+      moveDeal(deal, deal.status, undefined, true, false);
+      onClose();
+      return;
+    }
+    if (dealBoard?.wonStageId) {
+      moveDeal(deal, dealBoard.wonStageId);
+      onClose();
+      return;
+    }
+    const successStage = dealBoard?.stages.find(
+      s => s.linkedLifecycleStage === 'CUSTOMER'
+    ) || dealBoard?.stages.find(
+      s => s.linkedLifecycleStage === 'MQL'
+    ) || dealBoard?.stages.find(
+      s => s.linkedLifecycleStage === 'SALES_QUALIFIED'
+    );
+    if (successStage) {
+      moveDeal(deal, successStage.id);
+    } else {
+      updateDeal(deal.id, { isWon: true, isLost: false, closedAt: new Date().toISOString() });
+    }
+    onClose();
+  };
+
   const inner = (
     <>
     <div
@@ -520,37 +552,8 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
                   <>
                     <button
                       onClick={() => {
-                        // Intelligent "Won" Logic:
-                        // 0. Check for "Stay in Stage" flag (Archive/Close in place)
-                        if (dealBoard?.wonStayInStage) {
-                          moveDeal(deal, deal.status, undefined, true, false);
-                          onClose();
-                          return;
-                        }
-
-                        // 1. Check if board has explicit Won Stage configured
-                        if (dealBoard?.wonStageId) {
-                          moveDeal(deal, dealBoard.wonStageId);
-                          onClose();
-                          return;
-                        }
-
-                        // 2. Find the appropriate "Success Stage" for this board based on lifecycle
-                        const successStage = dealBoard?.stages.find(
-                          s => s.linkedLifecycleStage === 'CUSTOMER'
-                        ) || dealBoard?.stages.find(
-                          s => s.linkedLifecycleStage === 'MQL'
-                        ) || dealBoard?.stages.find(
-                          s => s.linkedLifecycleStage === 'SALES_QUALIFIED'
-                        );
-
-                        if (successStage) {
-                          moveDeal(deal, successStage.id);
-                        } else {
-                          // Fallback: just mark as won without moving
-                          updateDeal(deal.id, { isWon: true, isLost: false, closedAt: new Date().toISOString() });
-                        }
-                        onClose();
+                        setRevenueInput(deal.value > 0 ? String(deal.value) : '');
+                        setShowRevenueModal(true);
                       }}
                       className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-bold text-sm shadow-sm flex items-center gap-2"
                     >
@@ -641,6 +644,9 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
           <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
             {/* Left Sidebar (Static Info + Custom Fields) */}
             <div className="w-full md:w-1/3 border-b md:border-b-0 md:border-r border-slate-200 dark:border-white/5 p-4 sm:p-6 overflow-y-auto bg-white dark:bg-dark-card max-h-[38vh] md:max-h-none">
+              {deal.boardId === TELEVENDAS_BOARD_ID && deal.status === AGUARDANDO_STAGE_ID && (
+                <WhatsAppAcceptButton dealId={deal.id} onAccepted={onClose} />
+              )}
               <div className="space-y-6">
                 <div>
                   <h3 className="text-xs font-bold text-slate-400 uppercase mb-2 flex items-center gap-2">
@@ -1296,6 +1302,18 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
           dealTitle={deal.title}
           isOpen={showBriefingDrawer}
           onClose={() => setShowBriefingDrawer(false)}
+        />
+
+        <RevenueModal
+          isOpen={showRevenueModal}
+          dealTitle={deal.title}
+          initialValue={revenueInput}
+          onClose={() => setShowRevenueModal(false)}
+          onConfirm={async (amount) => {
+            await updateDeal(deal.id, { value: amount });
+            setShowRevenueModal(false);
+            executeWonAction();
+          }}
         />
     </>
   );
