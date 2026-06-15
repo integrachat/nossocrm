@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
     const boardName = `Carteira ${sellerName}`
     const ownerId = profileMap.get(key) ?? null
 
-    let { data: board } = await svc
+    const { data: board } = await svc
       .from('boards')
       .select('id')
       .eq('organization_id', orgId)
