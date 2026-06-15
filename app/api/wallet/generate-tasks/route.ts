@@ -199,3 +199,4 @@ Regras de prioridade:
     message: `${totalTasks} tarefas geradas para ${sellers.length} vendedores`,
   })
 }
+
