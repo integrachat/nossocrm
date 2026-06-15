@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
     .from('profiles')
     .select('id, name')
     .eq('organization_id', organizationId)
-    .eq('role', 'seller')
+    .eq('role', 'vendedor')
 
   if (!sellers?.length) return NextResponse.json({ message: 'Nenhum vendedor encontrado' })
 
@@ -199,4 +199,3 @@ Regras de prioridade:
     message: `${totalTasks} tarefas geradas para ${sellers.length} vendedores`,
   })
 }
-
