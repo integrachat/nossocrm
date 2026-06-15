@@ -1,6 +1,8 @@
 // features/boards/components/WhatsAppAcceptButton.tsx
 import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { MessageCircle, Loader2, AlertCircle } from 'lucide-react';
+import { DEALS_VIEW_KEY } from '@/lib/query';
 
 export interface WhatsAppAcceptButtonProps {
   dealId: string;
@@ -10,10 +12,12 @@ export interface WhatsAppAcceptButtonProps {
 /**
  * WhatsAppAcceptButton — exibido quando um lead do WhatsApp está "Aguardando" no Televendas.
  * Ao clicar, atribui a conversa ao vendedor logado e move o negócio para o pipeline dele.
+ * Após sucesso, invalida os caches de deals e boards para a UI atualizar sem precisar de F5.
  */
 export const WhatsAppAcceptButton: React.FC<WhatsAppAcceptButtonProps> = ({ dealId, onAccepted }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const handleAccept = async () => {
     setLoading(true);
@@ -26,6 +30,14 @@ export const WhatsAppAcceptButton: React.FC<WhatsAppAcceptButtonProps> = ({ deal
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro ao iniciar conversa');
+
+      // Invalida caches para refletir o deal na nova board/stage imediatamente
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: DEALS_VIEW_KEY }),
+        queryClient.invalidateQueries({ queryKey: ['deals'] }),
+        queryClient.invalidateQueries({ queryKey: ['boards'] }),
+      ]);
+
       onAccepted?.();
     } catch (e: any) {
       setError(e.message || 'Erro ao iniciar conversa');
