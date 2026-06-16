@@ -170,11 +170,13 @@ export async function POST(req: NextRequest) {
       // ── Upsert contato (por telefone) ────────────────────────
       const sellerProfileId = sellerName ? (profileMap.get(sellerName.toLowerCase().trim()) ?? null) : null
 
+      // Busca por telefone com ou sem prefixo +55 (banco pode normalizar o número)
+      const phoneVariants = [phone, `+55${phone}`, `+${phone}`]
       const { data: existingContact } = await svc
         .from('contacts')
         .select('id')
         .eq('organization_id', orgId)
-        .eq('phone', phone)
+        .in('phone', phoneVariants)
         .maybeSingle()
 
       let contactId: string
