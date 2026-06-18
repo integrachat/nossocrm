@@ -32,6 +32,7 @@ import {
   LayoutDashboard,
   KanbanSquare,
   Users,
+  Wallet,
   Settings,
   Sun,
   Moon,
@@ -75,6 +76,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/boards': 'Boards',
   '/pipeline': 'Boards',
   '/contacts': 'Contatos',
+  '/contacts/wallet-import': 'Carteira dos Vendedores',
   '/activities': 'Atividades',
   '/decisions': 'Decisões',
   '/reports': 'Relatórios',
@@ -97,15 +99,6 @@ interface LayoutProps {
 
 /**
  * Item de navegação da sidebar
- *
- * @param props - Props do item de navegação
- * @param props.to - Rota de destino
- * @param props.icon - Componente de ícone Lucide
- * @param props.label - Label exibido
- * @param props.prefetch - Nome da rota para prefetch
- * @param props.clickedPath - Path que foi clicado (para manter highlight durante transição)
- * @param props.onItemClick - Callback quando o item é clicado
- * @param props.badge - Badge count to display
  */
 const NavItem = ({
   to,
@@ -128,8 +121,6 @@ const NavItem = ({
   const isActive = pathname === to || (to === '/boards' && pathname === '/pipeline');
   const wasJustClicked = clickedPath === to;
 
-  // If user clicked on a DIFFERENT item, immediately deactivate this one
-  // This prevents the delay showing both items as active
   const anotherItemWasClicked = clickedPath && clickedPath !== to;
   const isActuallyActive = anotherItemWasClicked ? false : (isActive || wasJustClicked);
 
@@ -161,12 +152,6 @@ const NavItem = ({
 
 /**
  * Layout principal da aplicação
- *
- * Fornece estrutura com sidebar fixa, header responsivo e área de conteúdo.
- * Inclui navegação, controles de tema e acesso ao assistente de IA.
- *
- * @param {LayoutProps} props - Props do componente
- * @returns {JSX.Element} Estrutura de layout completa
  */
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { darkMode, toggleDarkMode } = useTheme();
@@ -180,26 +165,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const isDesktop = mode === 'desktop';
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
-  // Hydration safety: `isDebugMode()` reads localStorage. On SSR it is always false.
-  // Initialize deterministically and sync on mount to avoid hydration mismatch warnings.
   const [debugEnabled, setDebugEnabled] = useState(false);
 
-  // Messaging unread count for notification badge
   const { data: unreadMessagesCount = 0 } = useUnreadCount();
 
   useEffect(() => {
     setDebugEnabled(isDebugMode());
   }, []);
 
-  // If the user signed out (or session expired), leave protected shell ASAP.
-  // This prevents rendering fallbacks like "Usuário" while unauthenticated.
   useEffect(() => {
     if (loading) return;
     if (!user) router.replace('/login');
   }, [loading, user, router]);
 
-  // Expose sidebar width as a global CSS var so modals/overlays can "shrink" on desktop
-  // instead of covering the navigation sidebar (works even for portals).
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const width =
@@ -209,7 +187,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     document.documentElement.style.setProperty('--app-sidebar-width', width);
   }, [isDesktop, isTablet, sidebarCollapsed]);
 
-  // Cleanup on unmount (e.g. leaving the app shell).
   useEffect(() => {
     return () => {
       if (typeof document === 'undefined') return;
@@ -217,30 +194,24 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     };
   }, []);
 
-  // Expose bottom nav height so the content can pad itself and avoid being covered.
   useEffect(() => {
     if (typeof document === 'undefined') return;
     document.documentElement.style.setProperty('--app-bottom-nav-height', isMobile ? '56px' : '0px');
   }, [isMobile]);
 
-  // Close "More" menu when route changes.
   useEffect(() => {
     setIsMoreOpen(false);
   }, [pathname]);
 
-  // Track the last clicked menu item to maintain highlight during Suspense transitions
   const [clickedPath, setClickedPath] = useState<string | undefined>(undefined);
 
-  // Clear clickedPath only when the clicked route actually becomes active
   React.useEffect(() => {
     if (clickedPath) {
-      // Check if the clicked path is now the active route (or its alias)
       const isNowActive = pathname === clickedPath ||
         (clickedPath === '/boards' && pathname === '/pipeline') ||
         (clickedPath === '/pipeline' && pathname === '/boards');
 
       if (isNowActive) {
-        // Route is now active, safe to clear the "clicked" state
         setClickedPath(undefined);
       }
     }
@@ -256,20 +227,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   };
 
-  // Gera iniciais do email
   const userInitials = profile?.email?.substring(0, 2).toUpperCase() || 'U';
 
   if (!loading && !user) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface-bg bg-dots">
-      {/* Skip Link for keyboard users */}
       <SkipLink targetId="main-content" />
 
-      {/* Tablet rail (shows full icon set; no "More" sheet needed) */}
       {isTablet ? <NavigationRail /> : null}
 
-      {/* Sidebar - Collapsible */}
       {isDesktop ? (
       <aside
         className={`hidden md:flex flex-col z-20 glass border-r border-[var(--color-border-subtle)] transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-20 items-center' : 'w-64'
@@ -286,7 +253,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </span>
           </div>
 
-          {/* Header Toggle Button - Only visible when expanded */}
           {!sidebarCollapsed && (
             <button
               onClick={() => setSidebarCollapsed(true)}
@@ -305,6 +271,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             { to: '/dashboard', icon: LayoutDashboard, label: 'Visão Geral', prefetch: 'dashboard' as const, badge: undefined },
             { to: '/boards', icon: KanbanSquare, label: 'Boards', prefetch: 'boards' as const, badge: undefined },
             { to: '/contacts', icon: Users, label: 'Contatos', prefetch: 'contacts' as const, badge: undefined },
+            { to: '/contacts/wallet-import', icon: Wallet, label: 'Carteira', prefetch: undefined, badge: undefined },
             { to: '/activities', icon: CheckSquare, label: 'Atividades', prefetch: 'activities' as const, badge: undefined },
             { to: '/reports', icon: BarChart3, label: 'Relatórios', prefetch: 'reports' as const, badge: undefined },
             { to: '/settings', icon: Settings, label: 'Configurações', prefetch: 'settings' as const, badge: undefined },
@@ -321,7 +288,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                         className={(() => {
                           const isActive = pathname === item.to || (item.to === '/boards' && pathname === '/pipeline');
                           const wasJustClicked = clickedPath === item.to;
-                          // If user clicked on a DIFFERENT item, immediately deactivate this one
                           const anotherItemWasClicked = clickedPath && clickedPath !== item.to;
                           const isActuallyActive = anotherItemWasClicked ? false : (isActive || wasJustClicked);
                           return `relative w-10 h-10 rounded-lg flex items-center justify-center ${isActuallyActive
@@ -361,7 +327,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           })}
         </nav>
 
-        {/* Sidebar Toggle Button (Footer) - Only visible when collapsed */}
         {sidebarCollapsed && (
           <div className="px-4 pb-2 flex justify-center">
             <button
@@ -376,7 +341,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         <div className={`p-4 border-t border-[var(--color-border-subtle)] ${sidebarCollapsed ? 'flex justify-center' : ''}`}>
           <div className="relative">
-            {/* User Card - Clickable */}
             <button
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
               className={`flex items-center gap-3 rounded-xl bg-slate-50/50 dark:bg-white/5 border border-slate-100 dark:border-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition-all group focus-visible-ring ${sidebarCollapsed ? 'p-0 w-10 h-10 justify-center' : 'w-full p-3'
@@ -422,7 +386,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               )}
             </button>
 
-            {/* Dropdown Menu */}
             {isUserMenuOpen && (
               <>
                 <div
@@ -461,17 +424,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </aside>
       ) : null}
 
-      {/* Main Content Wrapper */}
       <div className="flex-1 flex min-w-0 overflow-hidden relative">
-        {/* Middle Content (Header + Page) */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-          {/* Ambient background glow */}
           <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none" aria-hidden="true">
             <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-primary-500/10 rounded-full blur-[100px]"></div>
             <div className="absolute top-[40%] right-[0%] w-[40%] h-[40%] bg-purple-500/10 rounded-full blur-[100px]"></div>
           </div>
 
-          {/* Header */}
           <header className="h-16 glass border-b border-[var(--color-border-subtle)] flex items-center justify-between px-6 z-40 shrink-0" role="banner">
             <h1 className="text-lg font-semibold font-display text-slate-900 dark:text-white">
               {getPageTitle(pathname)}
@@ -525,7 +484,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </main>
         </div>
 
-        {/* Right Sidebar (AI Assistant) */}
         <aside
           aria-label="Assistente de IA"
           aria-hidden={!isGlobalAIOpen}
@@ -539,7 +497,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </aside>
       </div>
 
-      {/* Mobile app shell */}
       <BottomNav onOpenMore={() => setIsMoreOpen(true)} />
       <MoreMenuSheet isOpen={isMoreOpen} onClose={() => setIsMoreOpen(false)} />
     </div>
