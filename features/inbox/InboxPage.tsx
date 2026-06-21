@@ -8,6 +8,7 @@ import { InboxOverviewView } from './components/InboxOverviewView';
 import { InboxListView } from './components/InboxListView';
 import { InboxFocusView } from './components/InboxFocusView';
 import { DebugFillButton } from '@/components/debug/DebugFillButton';
+import { WalletTasksCard } from '@/features/wallet/components/WalletTasksCard';
 
 /**
  * Componente React `InboxPage`.
