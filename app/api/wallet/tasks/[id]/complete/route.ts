@@ -7,35 +7,64 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-  const { data: profile } = await supabase
+  if (!user) {
+    return NextResponse.json({
+      error: 'Unauthorized',
+      debug: { authError: authError?.message || null }
+    }, { status: 401 })
+  }
+
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('id, name, organization_id')
     .eq('id', user.id)
     .single()
 
-  if (!profile) return NextResponse.json({ error: 'Perfil não encontrado' }, { status: 404 })
+  if (!profile) {
+    return NextResponse.json({
+      error: 'Perfil não encontrado',
+      debug: { userId: user.id, profileError: profileError?.message || null }
+    }, { status: 404 })
+  }
 
   // Buscar a tarefa
-  const { data: task } = await supabase
+  const { data: task, error: taskError } = await supabase
     .from('wallet_tasks')
-    .select('id, contact_id, assigned_to, status')
+    .select('id, contact_id, assigned_to, status, organization_id')
     .eq('id', params.id)
     .eq('organization_id', profile.organization_id)
     .maybeSingle()
 
-  if (!task) return NextResponse.json({ error: 'Tarefa não encontrada' }, { status: 404 })
+  if (!task) {
+    return NextResponse.json({
+      error: 'Tarefa não encontrada',
+      debug: {
+        paramsId: params.id,
+        userId: user.id,
+        profileOrgId: profile.organization_id,
+        taskError: taskError?.message || null,
+      }
+    }, { status: 404 })
+  }
+
   if (task.status === 'done') {
     return NextResponse.json({ success: true, message: 'Tarefa já estava concluída' })
   }
 
   // Marcar como concluída
-  await supabase
+  const { error: updateError } = await supabase
     .from('wallet_tasks')
     .update({ status: 'done', completed_at: new Date().toISOString() })
     .eq('id', task.id)
+
+  if (updateError) {
+    return NextResponse.json({
+      error: 'Falha ao atualizar tarefa',
+      debug: { updateError: updateError.message }
+    }, { status: 500 })
+  }
 
   // Mover o card do contato no board "Carteira [Vendedor]" para "Contatado"
   const boardName = `Carteira ${profile.name}`
