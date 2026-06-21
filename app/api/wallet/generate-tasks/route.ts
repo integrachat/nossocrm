@@ -166,9 +166,16 @@ Regras de prioridade:
       const text = await callAI(provider, apiKey, aiConfig.ai_model, prompt)
       const clean = text.replace(/```json|```/g, '').trim()
       tasks = JSON.parse(clean)
-    } catch (e) {
-      console.error(`Erro IA para ${seller.name}:`, e)
-      continue
+    } catch (e: any) {
+      const aiError = e?.message || String(e)
+      console.error(`Erro IA para ${seller.name}:`, aiError)
+      return NextResponse.json({
+        success: false,
+        error: `Erro ao chamar IA para vendedor ${seller.name}`,
+        detail: aiError,
+        provider,
+        model: aiConfig.ai_model,
+      }, { status: 500 })
     }
 
     for (const task of tasks) {
