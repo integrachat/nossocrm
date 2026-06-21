@@ -82,6 +82,8 @@ export const InboxPage: React.FC = () => {
         <ViewModeToggle mode={viewMode} onChange={setViewMode} />
       </div>
 
+      <WalletTasksCard />
+
       {/* Views */}
       {viewMode === 'overview' ? (
         <InboxOverviewView
