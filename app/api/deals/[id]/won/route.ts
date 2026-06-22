@@ -64,5 +64,74 @@ export async function POST(
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // ── Automação de Carteira: atualizar last_purchase_date e mover para "Recomprou" ──
+  try {
+    const contactId = updated.contact_id
+    const today = new Date().toISOString().split('T')[0]
+
+    if (contactId) {
+      // Atualizar last_purchase_date do contato
+      await supabase
+        .from('contacts')
+        .update({
+          last_purchase_date: today,
+          wallet_stage: 'active',
+        })
+        .eq('id', contactId)
+        .eq('organization_id', profile!.organization_id)
+
+      // Buscar o dono do contato (owner_id) para achar o board da carteira
+      const { data: contact } = await supabase
+        .from('contacts')
+        .select('owner_id')
+        .eq('id', contactId)
+        .maybeSingle()
+
+      if (contact?.owner_id) {
+        // Buscar nome do vendedor
+        const { data: seller } = await supabase
+          .from('profiles')
+          .select('name')
+          .eq('id', contact.owner_id)
+          .maybeSingle()
+
+        if (seller?.name) {
+          const carteiraBoardName = `Carteira ${seller.name}`
+
+          // Buscar board da carteira
+          const { data: carteiraBoard } = await supabase
+            .from('boards')
+            .select('id')
+            .eq('organization_id', profile!.organization_id)
+            .eq('name', carteiraBoardName)
+            .maybeSingle()
+
+          if (carteiraBoard) {
+            // Buscar estágio "Recomprou"
+            const { data: recomprouStage } = await supabase
+              .from('board_stages')
+              .select('id')
+              .eq('board_id', carteiraBoard.id)
+              .eq('name', 'Recomprou')
+              .maybeSingle()
+
+            if (recomprouStage) {
+              // Mover card da carteira para "Recomprou"
+              await supabase
+                .from('deals')
+                .update({ stage_id: recomprouStage.id })
+                .eq('organization_id', profile!.organization_id)
+                .eq('board_id', carteiraBoard.id)
+                .eq('contact_id', contactId)
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // Não bloquear o retorno em caso de erro na automação da carteira
+    console.error('[won] Erro na automação de carteira:', e)
+  }
+
   return NextResponse.json({ success: true, deal: updated })
 }
