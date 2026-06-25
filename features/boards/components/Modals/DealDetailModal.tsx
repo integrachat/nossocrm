@@ -1324,7 +1324,7 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
               console.error('Erro ao registrar receita:', e)
             }
             setShowRevenueModal(false);
-            onClose();
+            executeWonAction();
           }}
         />
     </>
