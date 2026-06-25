@@ -1310,10 +1310,18 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
           initialValue={revenueInput}
           onClose={() => setShowRevenueModal(false)}
           onConfirm={async (amount) => {
-            await updateDeal(deal.id, { value: amount });
-            setShowRevenueModal(false);
-            executeWonAction();
-          }}
+  try {
+    await fetch(`/api/deals/${deal.id}/won`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revenueAmount: amount }),
+    })
+  } catch (e) {
+    console.error('Erro ao registrar receita:', e)
+  }
+  setShowRevenueModal(false);
+  executeWonAction();
+}}
         />
     </>
   );
